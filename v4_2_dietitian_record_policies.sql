@@ -8,6 +8,22 @@ grant select, insert, update on table public.entry_reviews to authenticated;
 alter table public.daily_entries enable row level security;
 alter table public.entry_reviews enable row level security;
 
+-- Dietitians must be able to read relationship rows so the policies below can
+-- verify that the target client is assigned to auth.uid(). Existing policies
+-- are permissive (OR-combined), so this adds the missing dietitian path safely.
+grant select on table public.dietitian_clients to authenticated;
+alter table public.dietitian_clients enable row level security;
+
+drop policy if exists "v42_users_read_own_relationships" on public.dietitian_clients;
+create policy "v42_users_read_own_relationships"
+on public.dietitian_clients
+for select
+to authenticated
+using (
+  client_id = auth.uid()
+  or dietitian_id = auth.uid()
+);
+
 drop policy if exists "v42_dietitian_select_assigned_daily_entries" on public.daily_entries;
 create policy "v42_dietitian_select_assigned_daily_entries"
 on public.daily_entries
