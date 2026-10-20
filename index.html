@@ -24,8 +24,52 @@ function updateMode(refresh=true){let m=$('mode').value,e=entry(),t=targetFor(cl
 async function saveDiary(submit){let old=entry(),v={clientId:person,date:day,mode:$('mode').value,amounts:foods.map((_,i)=>{let el=$('f'+i);return num(el.value)}),status:submit?'submitted':'draft',feedback:old?.feedback||'',reviewedAt:old?.reviewedAt||''};for(let k of ['breakfast','lunch','dinner','snack','weight','water','steps','sleep','bowel','exercise','notes'])v[k]=$(k).value;if(old){Object.assign(old,v)}else data.entries.push(v);try{await persistEntry(v);await loadData();alert(submit?'已提交雲端紀錄':'已儲存雲端草稿');render()}catch(err){alert('儲存失敗：'+err.message);await loadData()}}
 function renderHistory(){$('content').innerHTML=`<div class="panel"><h1>歷史紀錄與回饋</h1>${data.entries.filter(e=>e.clientId===person).sort((a,b)=>b.date.localeCompare(a.date)).map(e=>`<div class="item"><strong>${esc(e.date)}</strong> · ${esc(e.mode)} ${tag(e)}<p class="muted">${esc(e.breakfast||'未填早餐')} · ${esc(e.exercise||'未填運動')}</p>${e.feedback?`<p><strong>營養師：</strong>${esc(e.feedback)}</p>`:''}<button onclick="day='${e.date}';go('diary')">查看／編輯</button></div>`).join('')||'<p class="muted">尚無紀錄。</p>'}</div>`}
 function renderDashboard(){let submitted=data.entries.filter(e=>e.status==='submitted').length;let reviewed=data.entries.filter(e=>e.status==='reviewed').length;$('content').innerHTML=`<div class="panel"><h1>營養師工作台</h1><p class="muted">查看示範個案紀錄與待審核數量。</p><div class="grid3"><div><div class="stats">${data.clients.length}</div><span class="muted">個案數</span></div><div><div class="stats">${submitted}</div><span class="muted">待審核</span></div><div><div class="stats">${reviewed}</div><span class="muted">已審核</span></div></div></div><div class="panel"><h2>個案清單</h2>${data.clients.map(c=>{let es=data.entries.filter(e=>e.clientId===c.id);return `<div class="item"><strong>${esc(c.name)}</strong><p class="muted">紀錄 ${es.length} 筆 · 待審核 ${es.filter(e=>e.status==='submitted').length} 筆</p><button onclick="person='${c.id}';go('review')">查看紀錄</button> <button onclick="person='${c.id}';go('targets')">設定餐盤</button></div>`}).join('')}</div>`}
-function renderReview(){let es=data.entries.filter(e=>e.clientId===person).sort((a,b)=>b.date.localeCompare(a.date));$('content').innerHTML=`<div class="panel"><h1>審核與營養建議</h1><p class="muted">目前個案：${esc(client().name)}</p>${es.map((e,i)=>`<div class="item"><strong>${esc(e.date)}</strong> · ${esc(e.mode)} ${tag(e)}<div class="actions"><button onclick="openReview('${e.date}')">查看與回覆</button></div></div>`).join('')||'<p class="muted">這位個案尚無紀錄。</p>'}</div><div id="reviewDetail"></div>`}
-function openReview(d){let e=data.entries.find(x=>x.clientId===person&&x.date===d),t=targetFor(client(),e.mode);$('reviewDetail').innerHTML=`<div class="panel"><h2>${esc(d)} · 營養分析</h2><p class="muted">可直接修改下方「實際」份數；儲存後會更新個案的雲端紀錄。目標份數仍由餐盤設定控制。</p><div class="tablewrap"><table><thead><tr><th>食物</th><th>目標</th><th>實際</th><th>差異</th></tr></thead><tbody>${foods.map((f,i)=>{let v=e.amounts?.[i];return `<tr><td>${f}</td><td>${t[i]??0}</td><td><input id="reviewAmount${i}" type="number" min="0" step="0.1" value="${v==null?'':esc(v)}" placeholder="未填" aria-label="${f}實際份數" oninput="updateReviewDiff(${i},${t[i]??0})"></td><td><span id="reviewDiff${i}">${v==null?'—':Math.round((v-(t[i]||0))*10)/10}</span></td></tr>`}).join('')}</tbody></table></div><h3>飲食與生活</h3><p>${[['早餐',e.breakfast],['午餐',e.lunch],['晚餐',e.dinner],['點心',e.snack],['運動',e.exercise],['體重',e.weight],['水量',e.water],['步數',e.steps],['睡眠',e.sleep],['排便',e.bowel],['備註',e.notes]].map(([k,v])=>`<strong>${k}：</strong>${esc(v||'未填')}`).join('<br>')}</p><div class="field"><label>營養師建議</label><textarea id="feedback" placeholder="輸入具體的營養建議">${esc(e.feedback||'')}</textarea></div><div class="actions"><button class="primary" onclick="finishReview('${d}')">儲存份數與建議並標記已審核</button><button onclick="copyReview('${d}')">複製紀錄摘要</button></div></div>`;$('reviewDetail').scrollIntoView({behavior:'smooth',block:'start'})}
+function renderReview(){
+  let es=data.entries.filter(e=>e.clientId===person).sort((a,b)=>b.date.localeCompare(a.date));
+  $('content').innerHTML=`<div class="panel">
+    <h1>審核與營養建議</h1>
+    <p class="muted">目前個案：${esc(client().name)}。營養師也可以在此新增每日紀錄，直接補登飲食與生活資料。</p>
+    <div class="grid">
+      <div class="field"><label>新增紀錄日期</label><input id="newEntryDate" type="date" value="${day}"></div>
+      <div class="field" style="align-self:end"><button class="primary" onclick="createEntryForClient()">＋ 新增每日紀錄</button></div>
+    </div>
+    ${es.map(e=>`<div class="item"><strong>${esc(e.date)}</strong> · ${esc(e.mode)} ${tag(e)}<div class="actions"><button onclick="openReview('${e.date}')">查看／編輯紀錄與回覆</button></div></div>`).join('')||'<p class="muted">這位個案尚無紀錄。選擇日期後，按「新增每日紀錄」即可開始補登。</p>'}
+  </div><div id="reviewDetail"></div>`;
+}
+async function createEntryForClient(){
+  if(role!=='dietitian'){alert('只有營養師可以從此處新增個案紀錄。');return;}
+  const d=$('newEntryDate')?.value;
+  if(!d){alert('請先選擇紀錄日期。');return;}
+  const existing=data.entries.find(e=>e.clientId===person&&e.date===d);
+  if(existing){alert('這個日期已經有紀錄，將直接開啟原紀錄供你編輯。');openReview(d);return;}
+  const payload={
+    mode:'一般日', amounts:foods.map(()=>null), status:'draft',
+    breakfast:'',lunch:'',dinner:'',snack:'',
+    weight:'',water:'',steps:'',sleep:'',
+    bowel:'未填寫',exercise:'',notes:''
+  };
+  try{
+    const {error}=await cloud.from('daily_entries').insert({
+      client_id:person, entry_date:d, payload, updated_at:new Date().toISOString()
+    });
+    if(error)throw error;
+    await loadData();
+    if(!data.entries.some(e=>e.clientId===person&&e.date===d)){
+      throw new Error('資料已送出，但重新讀取時沒有看到這筆紀錄。請檢查 daily_entries 的 SELECT RLS Policy。');
+    }
+    day=d; renderReview(); openReview(d);
+    alert('已新增每日紀錄。請填入實際份數及生活資料，再儲存。');
+  }catch(err){
+    alert('新增紀錄失敗：'+err.message+'\n若訊息提及 row-level security 或 permission denied，需要為已授權的 dietitian 增加 daily_entries INSERT Policy。');
+  }
+}
+function openReview(d){let e=data.entries.find(x=>x.clientId===person&&x.date===d),t=targetFor(client(),e.mode);$('reviewDetail').innerHTML=`<div class="panel"><h2>${esc(d)} · 營養分析</h2><p class="muted">可直接修改下方「實際」份數；儲存後會更新個案的雲端紀錄。目標份數仍由餐盤設定控制。</p><div class="tablewrap"><table><thead><tr><th>食物</th><th>目標</th><th>實際</th><th>差異</th></tr></thead><tbody>${foods.map((f,i)=>{let v=e.amounts?.[i];return `<tr><td>${f}</td><td>${t[i]??0}</td><td><input id="reviewAmount${i}" type="number" min="0" step="0.1" value="${v==null?'':esc(v)}" placeholder="未填" aria-label="${f}實際份數" oninput="updateReviewDiff(${i},${t[i]??0})"></td><td><span id="reviewDiff${i}">${v==null?'—':Math.round((v-(t[i]||0))*10)/10}</span></td></tr>`}).join('')}</tbody></table></div><h3>餐食與生活紀錄（營養師可直接補登／修改）</h3>
+<div class="grid">${[['breakfast','早餐'],['lunch','午餐'],['dinner','晚餐'],['snack','點心／飲料／補充品']].map(([k,n])=>`<div class="field"><label>${n}</label><textarea id="edit_${k}" placeholder="食物、份量、烹調方式">${esc(e[k]||'')}</textarea></div>`).join('')}</div>
+<div class="grid3">${[['weight','體重 kg'],['water','飲水 ml'],['steps','步數'],['sleep','睡眠小時']].map(([k,n])=>`<div class="field"><label>${n}</label><input id="edit_${k}" type="number" min="0" step="any" value="${esc(e[k]??'')}"></div>`).join('')}
+<div class="field"><label>排便</label><select id="edit_bowel">${['未填寫','正常','便秘','腹瀉','其他'].map(x=>`<option ${x===(e.bowel||'未填寫')?'selected':''}>${x}</option>`).join('')}</select></div>
+<div class="field"><label>運動</label><input id="edit_exercise" value="${esc(e.exercise||'')}" placeholder="項目、時間"></div></div>
+<div class="field"><label>其他備註</label><textarea id="edit_notes">${esc(e.notes||'')}</textarea></div>
+<div class="field"><label>營養師建議</label><textarea id="feedback" placeholder="輸入具體的營養建議">${esc(e.feedback||'')}</textarea></div><div class="actions"><button class="primary" onclick="finishReview('${d}')">儲存份數與建議並標記已審核</button><button onclick="copyReview('${d}')">複製紀錄摘要</button></div></div>`;$('reviewDetail').scrollIntoView({behavior:'smooth',block:'start'})}
 function updateReviewDiff(i,target){const el=$('reviewAmount'+i),out=$('reviewDiff'+i);if(!el||!out)return;const raw=el.value.trim();out.textContent=raw===''?'—':(Number.isFinite(Number(raw))?Math.round((Number(raw)-target)*10)/10:'—')}
 async function finishReview(d){
   const e=data.entries.find(x=>x.clientId===person&&x.date===d);
@@ -33,7 +77,20 @@ async function finishReview(d){
   const amounts=foods.map((_,i)=>{const el=$('reviewAmount'+i);if(!el)return e.amounts?.[i]??null;const raw=el.value.trim();return raw===''?null:Number(raw)});
   if(amounts.some(v=>v!==null&&(!Number.isFinite(v)||v<0))){alert('實際份數請輸入有效的非負數。');return;}
   const feedback=$('feedback').value.trim();
-  const payload={...e,amounts};
+  const payload={
+    ...e, amounts,
+    breakfast:$('edit_breakfast').value,
+    lunch:$('edit_lunch').value,
+    dinner:$('edit_dinner').value,
+    snack:$('edit_snack').value,
+    weight:$('edit_weight').value,
+    water:$('edit_water').value,
+    steps:$('edit_steps').value,
+    sleep:$('edit_sleep').value,
+    bowel:$('edit_bowel').value,
+    exercise:$('edit_exercise').value,
+    notes:$('edit_notes').value
+  };
   for(const k of ['clientId','date','feedback','reviewedAt'])delete payload[k];
   // Status is derived from entry_reviews after review; keep the client-side payload in submitted state.
   if(payload.status==='reviewed')payload.status='submitted';
